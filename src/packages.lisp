@@ -1,3 +1,8 @@
-(defpackage #:doc-md
-  (:use #:common-lisp #:alexandria #:iterate)
-  (:export #:generate))
+(defpackage #:tanstaafl
+  (:use #:common-lisp)
+  (:nicknames #:t)
+  (:export
+    #:generate
+    #:write-documentation))
+
+#+sbcl (require :sb-introspect)
