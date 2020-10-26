@@ -1,22 +1,31 @@
 (in-package #:tanstaafl)
 
 
+(defvar *documentation-in-markdown* nil)
+
+
+(defun do-write-documentation (stream object doc-type &optional (leader (make-string 2 :initial-element #\Newline)))
+  (let ((doc (or (documentation object doc-type)
+                 #+clasp (when (eql 'function doc-type)
+                           (sys:get-annotation object 'documentation 'method)))))
+    (when doc
+      (format stream (if *documentation-in-markdown*
+                       "~a~a"
+                       "~a~:/t:pre/")
+              leader doc))))
+
+
 (defgeneric write-documentation (stream object doc-type detail-level))
 
 
 (defmethod write-documentation (stream (object package) doc-type detail-level)
   (declare (ignore doc-type))
-  (format stream "# ~:/t:text/ [package]~@[~%~%~:/t:pre/~]~@[~%~%## Nicknames~%~%~(~{~@/t:text/~^, ~}~)~]"
-                  (package-name object)
-                  (documentation object t)
-                  (package-nicknames object))
+  (format stream "# ~:/t:text/ [package]" (package-name object))
+  (do-write-documentation stream object t)
+  (format stream "~@[~%~%## Nicknames~%~%~(~{~@/t:text/~^, ~}~)~]" (package-nicknames object))
   (unless (zerop detail-level)
-    (let (exports)
-      (do-external-symbols (sym object)
-        (push sym exports))
-      (when exports
-        (format stream "~%~%## Exports~%~%~{~@/t:text/~^, ~}"
-                       exports)))))
+    (format stream "~@[~%~%## Exports~%~%~{~<~%~1,80:;~@/t:text/~^, ~>~}~]"
+                   (exported-symbols object))))
 
 
 (defun write-symbol-system (stream sym detail-level)
@@ -34,15 +43,14 @@
 
 (defmethod write-documentation (stream (object symbol) (doc-type (eql 'variable)) detail-level)
   (when (boundp object)
-    (format stream "~%~%## ~:[Dynamic~;Constant~] Variable~@[~%~%~:/t:pre/~]~%~%~@/t:code/"
-            (constantp object)
-            (documentation object 'variable)
-            (symbol-value object))))
+    (format stream "~%~%## ~:[Dynamic~;Constant~] Variable" (constantp object))
+    (do-write-documentation stream object t)
+    (format stream "~%~%~@/t:code/" (symbol-value object))))
 
 
 (defmethod write-documentation (stream (object symbol) (doc-type (eql 'function)) detail-level)
   (when (fboundp object)
-    (format stream "~%~%## ~A~@[~%~%~:/t:pre/~%~%~]~%~%### Syntax~%~%~@/t:code/"
+    (format stream "~%~%## ~A"
             (cond
               ((special-operator-p object)
                 "Special")
@@ -51,29 +59,27 @@
               ((typep (fdefinition object) 'standard-generic-function)
                 "Generic Function")
               (t
-                "Function"))
-            (or (documentation object 'function)
-                #+clasp (sys:get-annotation object 'documentation 'method))
-            (cons object (lambda-list object)))))
+                "Function")))
+    (do-write-documentation stream object 'function)
+    (format stream "~%~%~@/t:code/" (cons object (lambda-list object)))))
 
 
 (defmethod write-documentation (stream (object symbol) (doc-type (eql 'type)) detail-level)
   (alexandria:when-let ((cls (find-class object nil)))
     (closer-mop:finalize-inheritance cls)
-    (format stream "~%~%## ~:[Class~;Structure~]~@[~%~%~:/t:pre/~]~%~%### Precedence List~%~%~{~@/t:text/~^, ~}"
-            (subtypep cls (find-class 'structure-object))
-            (documentation object 'type)
+    (format stream "~%~%## ~:[Class~;Structure~]" (subtypep cls (find-class 'structure-object)))
+    (do-write-documentation stream object 'type)
+    (format stream "~%~%### Precedence List~%~%~{~@/t:text/~^, ~}"
             (mapcar #'class-name (closer-mop:class-precedence-list cls)))
     (when (closer-mop:class-slots cls)
       (format stream "~%~%### Slots~%")
       (dolist (slot (closer-mop:class-slots cls))
-        (format stream "~%- ~/t:text/~@[ \\[~/t:text/\\]~]~@[ &mdash; ~:/t:text/~]~{~%    - :initarg ~/t:text/~}~@[~%    - :allocation ~/t:text/~]"
+        (format stream "~%- ~/t:text/~@[ \\[~/t:text/\\]~]"
                 (closer-mop:slot-definition-name slot)
                 (unless (eql t (closer-mop:slot-definition-type slot))
-                  (closer-mop:slot-definition-type slot))
-                (if (listp (documentation slot t))
-                  (first (documentation slot t))
-                  (documentation slot t))
+                  (closer-mop:slot-definition-type slot)))
+        (do-write-documentation stream slot t " &mdash; ")
+        (format stream "~{~%    - :initarg ~/t:text/~}~@[~%    - :allocation ~/t:text/~]"
                 (closer-mop:slot-definition-initargs slot)
                 (unless (eql :instance (closer-mop:slot-definition-allocation slot))
                   (closer-mop:slot-definition-allocation slot)))))
@@ -83,9 +89,10 @@
         (let ((name (closer-mop:generic-function-name (closer-mop:method-generic-function method)))
               (lambda-list (method-specialized-lambda-list method))
               (*indent-level* 1))
-          (format stream "~%- ~/t:text/~@[ &mdash; ~:/t:text/~]~%~%~@/t:code/~%~%"
-                  (if (listp name) (second name) name)
-                  (documentation method t)
+          (format stream "~%- ~/t:text/"
+                  (if (listp name) (second name) name))
+          (do-write-documentation stream method t " &mdash; ")
+          (format stream "~%~%~@/t:code/~%~%"
                   (if (listp name)
                     `(setf (,(second name) ,@(cdr lambda-list)) ,(first lambda-list))
                     `(,name ,@lambda-list))))))))

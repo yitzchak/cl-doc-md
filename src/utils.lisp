@@ -80,3 +80,33 @@
       (t
         (push (car lambda-list)
               specialized-lambda-list)))))
+
+
+(defparameter +verboten-characters+
+  '((#\/     . #\F)
+    (#\\     . #\B)
+    (#\?     . #\Q)
+    (#\%     . #\P)
+    (#\*     . #\A)
+    (#\:     . #\C)
+    (#\|     . #\V)
+    (#\"     . #\D)
+    (#\'     . #\S)
+    (#\<     . #\L)
+    (#\>     . #\G)
+    (#\.     . #\D)
+    (#\space . #\_)))
+
+
+(defun sanitize (value)
+  (map 'string
+       (lambda (ch &aux (pair (assoc ch +verboten-characters+)))
+         (or (cdr pair) ch))
+       (string-downcase value)))
+
+
+(defun exported-symbols (package)
+  (let (exports)
+    (do-external-symbols (sym package)
+      (push sym exports))
+    (sort exports #'string-lessp)))
